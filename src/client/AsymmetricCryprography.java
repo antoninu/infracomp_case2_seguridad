@@ -3,6 +3,7 @@ package client;
 import java.security.Key;
 
 import javax.crypto.Cipher;
+import javax.xml.bind.DatatypeConverter;
 
 public class AsymmetricCryprography {
 	
@@ -14,7 +15,8 @@ public class AsymmetricCryprography {
 			Cipher rsa;
 			rsa = Cipher.getInstance(ALGORITHM);
 			rsa.init(Cipher.ENCRYPT_MODE, pubkey);
-			return rsa.doFinal(text.getBytes());
+			byte[] bytes = DatatypeConverter.parseBase64Binary(text);
+			return rsa.doFinal(bytes);
 		} catch (Exception e) {
 			e.printStackTrace();
 		}

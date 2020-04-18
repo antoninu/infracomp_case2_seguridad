@@ -1,13 +1,33 @@
 package client;
 
-import javax.crypto.*;
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.PrintWriter;
+import java.io.UnsupportedEncodingException;
 import java.net.Socket;
-import java.security.*;
+import java.security.InvalidKeyException;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.util.Base64;
 
-//import javax.xml.bind.DatatypeConverter;
+import javax.crypto.BadPaddingException;
+import javax.crypto.Cipher;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+
+import javax.xml.bind.DatatypeConverter;
 
 public class Client {
 
@@ -25,6 +45,7 @@ public class Client {
 	public static String SEPARADOR = ":";
 	public static String INICIO = "INICIO";
 	public static String CERTSRV = "CERTSRV";
+	private static final String initVector = "encryptionIntVec";
 
 	Socket s;
 	int safeServerPort = 4443;
@@ -68,10 +89,8 @@ public class Client {
 			out = new PrintWriter(outStream, true);
 			out.println(HOLA);
 			inputStream = s.getInputStream();
-
 			in = new BufferedReader(new InputStreamReader(inputStream));
 			String answer = in.readLine();
-			System.out.print(answer);
 			if (answer.equals(OK)) {
 				sendAlgotithms();
 			} else {
@@ -111,19 +130,17 @@ public class Client {
 		// we announce we will send the certificate
 		//out.println(BeginSendingCertificate);
 
+
 		try {
 			X509Certificate certificate = CertificateBuilder
 					.buildX509Certificate(keyPair);
 
 			byte[] certAsBytes = certificate.getEncoded();
-			String certificadoEnString = DatatypeConverter.printBase64Binary(certificadoEnBytes);
+			String certificadoEnString = DatatypeConverter.printBase64Binary(certAsBytes);
 
-			try {
-				s.getOutputStream().write(certAsBytes);
-				s.getOutputStream().flush();
-			} catch (IOException exception) {
-				System.out.println("There was an error sending bytes to server");
-			}
+			//s.getOutputStream().write(certAsBytes);
+			//s.getOutputStream().flush();
+			out.println(certificadoEnString);
 
 			// checking if server validated the client certificate
 			String validation = in.readLine();
@@ -143,36 +160,39 @@ public class Client {
 		out.println(OK);
 		try {
 			// reading line that announces the server will send its certificate
-			String validation = in.readLine();
-			out.println(OK);
-			if (validation.equals(CERTSRV)) {
+			String cert = in.readLine();
+			System.out.println(cert.length());
+			//out.println(OK);
+
 				// check the quality of the certificate
 				try {
 					CertificateFactory certFactory = CertificateFactory
 							.getInstance("X.509");
-					byte[] serverCertificateInBytes = new byte[5000]; // buffer to save
 																														// certificate bytes
-					inputStream.read(serverCertificateInBytes);
-					InputStream in = new ByteArrayInputStream(serverCertificateInBytes);
-					serverCertificate = (X509Certificate) certFactory
-							.generateCertificate(in);
+					//inputStream.read(serverCertificateInBytes);
+					//InputStream in = new ByteArrayInputStream(serverCertificateInBytes);
+					//InputStream targetStream = new ByteArrayInputStream(cert.getBytes());
+					byte[] bytes = DatatypeConverter.parseBase64Binary(cert);
+					//inputStream.read(bytes);
+					InputStream in = new ByteArrayInputStream(bytes);
+					serverCertificate = (X509Certificate) certFactory.generateCertificate(in);
 					serverKey = serverCertificate.getPublicKey();
+					System.out.println("holis");
+					System.out.println(serverCertificate.getSigAlgName());
+
+					out.println(OK);
 
 				} catch (Exception e) {
-					out.println(ESTADO + SEPARADOR + ERROR);
 					System.out.println(
 							"Error in the received certificate. It cannot be decoded");
 					e.printStackTrace();
 
 				}
-				out.println(ESTADO + SEPARADOR + OK);
+				//out.println(ESTADO + SEPARADOR + OK);
 
 				receiveSimmetricKey();
 
-			} else {
-				System.out.println("CERTSRV expected. Connection terminated");
-				s.close();
-			}
+
 
 		} catch (IOException e) {
 			System.out.println(
@@ -182,39 +202,65 @@ public class Client {
 	}
 
 	private void receiveSimmetricKey() {
-		String line;
-		try {
-			line = in.readLine();
-			String[] lineParts = line.split(":");
-			//byte[] parsedLine = DatatypeConverter
-			//		.parseHexBinary(lineParts[lineParts.length - 1]);
-			//byte[] symmetricKeyArray = AsymmetricCryprography
-			//		.decrypt(keyPair.getPrivate(), parsedLine);
+		String llave;
 
-			//SecretKeySpec symmetricKey = new SecretKeySpec(symmetricKeyArray, ALGS);
+		try {
+			llave = in.readLine();
+			System.out.println(llave);
+
+			//String[] lineParts = line.split(":");
+			byte[] bytes = DatatypeConverter.parseBase64Binary(llave);
+
+			byte[] symmetricKeyArray = AsymmetricCryprography
+					.decrypt(keyPair.getPrivate(), bytes);
+
+			SecretKeySpec symmetricKey = new SecretKeySpec(symmetricKeyArray, ALGS);
 			this.symmetricKey = symmetricKey;
-			System.out.println("Symmetric key stablished in client");
-			sendLocationAndDigest();
+			System.out.println("Symmetric key stablished in client " + symmetricKey.getEncoded());
+			sendDecryptReto();
+
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
 
 	}
 
-	private void sendLocationAndDigest() {
+	private void sendDecryptReto() {
 
 		try {
+			String reto = in.readLine();
+			System.out.println(reto);
+			//String location = "4.6071233,-74.0815995";
+			byte[] retoInBytes = DatatypeConverter.parseBase64Binary(reto);
 
-			String location = "4.6071233,-74.0815995";
-			byte[] locationInBytes = location.getBytes(Encoding);
+			//decrypt reto
+			Cipher cipher1 = Cipher.getInstance("AES/ECB/PKCS5PADDING");
+			//GCMParameterSpec parameterSpec = new GCMParameterSpec(128, initVector.getBytes("UTF-8")); //128 bit auth tag length
+			//IvParameterSpec iv = new IvParameterSpec(initVector.getBytes("UTF-8"));
+			//cipher1.init(Cipher.DECRYPT_MODE, this.symmetricKey, iv);
+			cipher1.init(Cipher.DECRYPT_MODE, this.symmetricKey);
+			//cipher1.init(this.symmetricKey);
+			byte[] decryptedRetoInBytes = cipher1.doFinal(retoInBytes);
+			String decryptedRetoString = DatatypeConverter
+					.printBase64Binary(decryptedRetoInBytes );
 
-			// encrypt location with symetric key. We send it.
+			System.out.println(decryptedRetoString);
+
+			byte[] retoInAssymetricBytes = AsymmetricCryprography
+					.encrypt(keyPair.getPublic(), decryptedRetoString);
+
+			String respuesta = DatatypeConverter.printBase64Binary(retoInAssymetricBytes);
+
+			out.println(respuesta);
+
+			/*
+			// encrypt reto with symetric key. We send it.
 			Cipher cipher = Cipher.getInstance(Padding);
 			cipher.init(Cipher.ENCRYPT_MODE, this.symmetricKey);
 			byte[] cipheredlocationTextArray = cipher.doFinal(locationInBytes);
-			//String cipheredTextHexadecimal = DatatypeConverter
-			//		.printHexBinary(cipheredlocationTextArray);
-			String strToSend = "ACT1" + SEPARADOR; //+ cipheredTextHexadecimal;
+			String cipheredTextHexadecimal = DatatypeConverter
+					.printHexBinary(cipheredlocationTextArray);
+			String strToSend = "ACT1" + SEPARADOR + cipheredTextHexadecimal;
 			out.println(strToSend);
 
 			// We calculate the digest, encrypt it with server public key, We send it.
@@ -226,9 +272,9 @@ public class Client {
 				rsa = Cipher.getInstance(ALGA);
 				rsa.init(Cipher.ENCRYPT_MODE, serverKey);
 				byte[] encryptedDigest = rsa.doFinal(digest);
-				//String encryptedDigestString = DatatypeConverter
-				//		.printHexBinary(encryptedDigest);
-				strToSend = "ACT2" + SEPARADOR; //+ encryptedDigestString;
+				String encryptedDigestString = DatatypeConverter
+						.printHexBinary(encryptedDigest);
+				strToSend = "ACT2" + SEPARADOR + encryptedDigestString;
 
 				out.println(strToSend);
 			} catch (InvalidKeyException e) {
@@ -244,7 +290,7 @@ public class Client {
 			}
 
 			receiveResponse();
-
+		*/
 		} catch (NoSuchAlgorithmException e) {
 			e.printStackTrace();
 		} catch (NoSuchPaddingException e) {
