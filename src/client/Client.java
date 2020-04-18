@@ -10,6 +10,7 @@ import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 import java.net.Socket;
 import java.security.InvalidKeyException;
+import java.security.Key;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
@@ -40,11 +41,9 @@ public class Client {
 	public static String ALGD = "HMACMD5";
 	public static String Padding = "AES/ECB/PKCS5Padding";
 	public static String Encoding = "UTF-8";
-	public static String BeginSendingCertificate = "CERTCLNT";
 	public static String ESTADO = "ESTADO";
 	public static String SEPARADOR = ":";
 	public static String INICIO = "INICIO";
-	public static String CERTSRV = "CERTSRV";
 	private static final String initVector = "encryptionIntVec";
 
 	Socket s;
@@ -75,6 +74,7 @@ public class Client {
 			KeyPairGenerator generator = KeyPairGenerator.getInstance(ALGA);
 			keyPair = generator.generateKeyPair();
 			generator.initialize(1024);
+			System.out.println(keyPair.getPublic().toString());
 
 		} catch (NoSuchAlgorithmException e) {
 			e.printStackTrace();
@@ -127,21 +127,12 @@ public class Client {
 
 	private void sendCertificate() {
 
-		// we announce we will send the certificate
-		//out.println(BeginSendingCertificate);
-
-
 		try {
-			X509Certificate certificate = CertificateBuilder
-					.buildX509Certificate(keyPair);
+			X509Certificate certificate = CertificateBuilder.buildX509Certificate(keyPair);
 
 			byte[] certAsBytes = certificate.getEncoded();
 			String certificadoEnString = DatatypeConverter.printBase64Binary(certAsBytes);
-
-			//s.getOutputStream().write(certAsBytes);
-			//s.getOutputStream().flush();
 			out.println(certificadoEnString);
-
 			// checking if server validated the client certificate
 			String validation = in.readLine();
 			if (validation.equals(OK)) {
@@ -157,7 +148,7 @@ public class Client {
 	}
 
 	private void receiveCertificate() {
-		out.println(OK);
+		//out.println(OK);
 		try {
 			// reading line that announces the server will send its certificate
 			String cert = in.readLine();
@@ -166,14 +157,10 @@ public class Client {
 
 				// check the quality of the certificate
 				try {
-					CertificateFactory certFactory = CertificateFactory
-							.getInstance("X.509");
-																														// certificate bytes
-					//inputStream.read(serverCertificateInBytes);
-					//InputStream in = new ByteArrayInputStream(serverCertificateInBytes);
-					//InputStream targetStream = new ByteArrayInputStream(cert.getBytes());
+					CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
+				
 					byte[] bytes = DatatypeConverter.parseBase64Binary(cert);
-					//inputStream.read(bytes);
+				
 					InputStream in = new ByteArrayInputStream(bytes);
 					serverCertificate = (X509Certificate) certFactory.generateCertificate(in);
 					serverKey = serverCertificate.getPublicKey();
@@ -211,8 +198,7 @@ public class Client {
 			//String[] lineParts = line.split(":");
 			byte[] bytes = DatatypeConverter.parseBase64Binary(llave);
 
-			byte[] symmetricKeyArray = AsymmetricCryprography
-					.decrypt(keyPair.getPrivate(), bytes);
+			byte[] symmetricKeyArray = AsymmetricCryprography.decrypt(keyPair.getPrivate(), bytes);
 
 			SecretKeySpec symmetricKey = new SecretKeySpec(symmetricKeyArray, ALGS);
 			this.symmetricKey = symmetricKey;
@@ -230,77 +216,24 @@ public class Client {
 		try {
 			String reto = in.readLine();
 			System.out.println(reto);
-			//String location = "4.6071233,-74.0815995";
+			
 			byte[] retoInBytes = DatatypeConverter.parseBase64Binary(reto);
 
-			//decrypt reto
-			Cipher cipher1 = Cipher.getInstance("AES/ECB/PKCS5PADDING");
-			//GCMParameterSpec parameterSpec = new GCMParameterSpec(128, initVector.getBytes("UTF-8")); //128 bit auth tag length
-			//IvParameterSpec iv = new IvParameterSpec(initVector.getBytes("UTF-8"));
-			//cipher1.init(Cipher.DECRYPT_MODE, this.symmetricKey, iv);
-			cipher1.init(Cipher.DECRYPT_MODE, this.symmetricKey);
-			//cipher1.init(this.symmetricKey);
-			byte[] decryptedRetoInBytes = cipher1.doFinal(retoInBytes);
-			String decryptedRetoString = DatatypeConverter
-					.printBase64Binary(decryptedRetoInBytes );
+			//decrypt reto		
+						
+			byte[] decryptedRetoInBytes = SymetricCryptography.decrypt(this.symmetricKey, retoInBytes);
+			String decryptedRetoString = DatatypeConverter.printBase64Binary(decryptedRetoInBytes );
 
 			System.out.println(decryptedRetoString);
+			System.out.println(keyPair.getPublic().toString());
 
-			byte[] retoInAssymetricBytes = AsymmetricCryprography
-					.encrypt(keyPair.getPublic(), decryptedRetoString);
+			byte[] retoInAssymetricBytes = AsymmetricCryprography.encrypt(serverKey, decryptedRetoString);
 
 			String respuesta = DatatypeConverter.printBase64Binary(retoInAssymetricBytes);
 
 			out.println(respuesta);
 
-			/*
-			// encrypt reto with symetric key. We send it.
-			Cipher cipher = Cipher.getInstance(Padding);
-			cipher.init(Cipher.ENCRYPT_MODE, this.symmetricKey);
-			byte[] cipheredlocationTextArray = cipher.doFinal(locationInBytes);
-			String cipheredTextHexadecimal = DatatypeConverter
-					.printHexBinary(cipheredlocationTextArray);
-			String strToSend = "ACT1" + SEPARADOR + cipheredTextHexadecimal;
-			out.println(strToSend);
-
-			// We calculate the digest, encrypt it with server public key, We send it.
-			byte[] digest = HMACDigestCreator.getkeyedDigest(locationInBytes, ALGD,
-					this.symmetricKey);
-
-			Cipher rsa;
-			try {
-				rsa = Cipher.getInstance(ALGA);
-				rsa.init(Cipher.ENCRYPT_MODE, serverKey);
-				byte[] encryptedDigest = rsa.doFinal(digest);
-				String encryptedDigestString = DatatypeConverter
-						.printHexBinary(encryptedDigest);
-				strToSend = "ACT2" + SEPARADOR + encryptedDigestString;
-
-				out.println(strToSend);
-			} catch (InvalidKeyException e) {
-				e.printStackTrace();
-			} catch (NoSuchAlgorithmException e) {
-				e.printStackTrace();
-			} catch (NoSuchPaddingException e) {
-				e.printStackTrace();
-			} catch (IllegalBlockSizeException e) {
-				e.printStackTrace();
-			} catch (BadPaddingException e) {
-				e.printStackTrace();
-			}
-
-			receiveResponse();
-		*/
-		} catch (NoSuchAlgorithmException e) {
-			e.printStackTrace();
-		} catch (NoSuchPaddingException e) {
-			e.printStackTrace();
-		} catch (InvalidKeyException e) {
-			e.printStackTrace();
-		} catch (IllegalBlockSizeException e) {
-			e.printStackTrace();
-		} catch (BadPaddingException e) {
-			e.printStackTrace();
+	
 		} catch (UnsupportedEncodingException e) {
 			e.printStackTrace();
 		} catch (Exception e) {
